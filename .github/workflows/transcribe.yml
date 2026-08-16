@@ -14,20 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache whisper.cpp build + model
-        id: cache-whisper
-        uses: actions/cache@v4
-        with:
-          path: whisper.cpp
-          key: whisper-cpp-base-${{ runner.os }}
-
       - name: Build whisper.cpp
-        if: steps.cache-whisper.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/ggerganov/whisper.cpp
           cd whisper.cpp
-          make
+          cmake -B build
+          cmake --build build --config Release -j
           bash ./models/download-ggml-model.sh base
+          ls build/bin
 
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
@@ -46,7 +40,8 @@ jobs:
           mkdir -p output
           for f in converted/*.wav; do
             name=$(basename "$f" .wav)
-            ./whisper.cpp/main -m whisper.cpp/models/ggml-base.bin \
+            ./whisper.cpp/build/bin/whisper-cli \
+              -m whisper.cpp/models/ggml-base.bin \
               -f "$f" \
               -otxt -of "output/${name}" \
               --language auto
