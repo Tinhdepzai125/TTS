@@ -1,0 +1,59 @@
+name: Speech to Text
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'audio/**'
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache whisper.cpp build + model
+        id: cache-whisper
+        uses: actions/cache@v4
+        with:
+          path: whisper.cpp
+          key: whisper-cpp-base-${{ runner.os }}
+
+      - name: Build whisper.cpp
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/ggerganov/whisper.cpp
+          cd whisper.cpp
+          make
+          bash ./models/download-ggml-model.sh base
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Convert audio to 16kHz mono WAV
+        run: |
+          mkdir -p converted
+          for f in audio/*; do
+            filename=$(basename "$f")
+            name="${filename%.*}"
+            ffmpeg -y -i "$f" -ar 16000 -ac 1 -c:a pcm_s16le "converted/${name}.wav"
+          done
+
+      - name: Transcribe
+        run: |
+          mkdir -p output
+          for f in converted/*.wav; do
+            name=$(basename "$f" .wav)
+            ./whisper.cpp/main -m whisper.cpp/models/ggml-base.bin \
+              -f "$f" \
+              -otxt -of "output/${name}" \
+              --language auto
+          done
+
+      - name: Upload transcript
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcripts
+          path: output/*.txt
